@@ -46,9 +46,9 @@ func main() {
 		if err != nil {
 			fmt.Errorf("You got an error writing to the server: %v", err)
 		}
-		// NEED TO BLOCK AFTER SENDING MESSAGE TO SERVER AND AWAIT A BYTE STREAM ARRAY, TAKE THAT ARRAY AND DISPLAY IT
+
 		if rune(char) == 27 {
-			term.Restore(int(os.Stdin.Fd()), oldState)
+			err = term.DisableRawMode(os.Stdin)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
