@@ -74,5 +74,6 @@ func handleConnection(conn net.Conn) error {
 		//	fmt.Println("Double send bad, well not really bad but I need to implement a buffer or something to deal with this")
 		//	continue
 		//}
+		fmt.Println(rune(message[0]))
 	}
 }

@@ -46,6 +46,13 @@ func main() {
 		if err != nil {
 			fmt.Errorf("You got an error writing to the server: %v", err)
 		}
+		if rune(char) == 27 {
+			err = term.DisableRawMode(os.Stdin)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
 	}
 }
 
