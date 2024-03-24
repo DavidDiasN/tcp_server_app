@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -18,10 +19,12 @@ const (
 )
 
 var (
-	lastMove         string = UP
-	IllegalMoveError error  = errors.New("Illegal move entered")
-	InvalidMoveError error  = errors.New("Invalid key pressed")
-	blankArr         []rune = makeEmptyArr()
+	oppositeKeyDirectionMap        = map[rune]string{'w': DOWN, 's': UP, 'd': LEFT, 'a': RIGHT}
+	keyDirectionMap                = map[rune]string{'w': UP, 's': DOWN, 'd': RIGHT, 'a': LEFT}
+	lastMove                string = UP
+	IllegalMoveError        error  = errors.New("Illegal move entered")
+	InvalidMoveError        error  = errors.New("Invalid key pressed")
+	blankArr                []rune = makeEmptyArr()
 )
 
 func makeEmptyArr() []rune {
@@ -50,6 +53,7 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) error {
+	defer conn.Close()
 	rows := 25
 	cols := 25
 
@@ -61,43 +65,51 @@ func handleConnection(conn net.Conn) error {
 	}
 
 	startingPos := Pos{colStart, rowStart}
-	connectionBoard := &Board{rows, cols, newBoardState, []Pos{startingPos}}
+
+	connectionBoard := &Board{rows, cols, newBoardState, []Pos{startingPos}, sync.Mutex{}}
+
+	message := make(chan rune)
+	go func() {
+		for {
+			buffer := make([]byte, 1)
+			n, err := conn.Read(buffer)
+			if err != nil {
+				return
+			}
+			if n == -1 {
+				return
+			}
+			// put the logic to ignore keystrokes in here instead of in the movement thing
+			message <- rune(string(buffer[:n])[0])
+		}
+	}()
 
 	for {
-		buffer := make([]byte, 1)
-		fmt.Println("We out here blocking")
 		select {
-		case message := <-check(conn, buffer):
-
-			check, holdingLastMove, err := movement(connectionBoard, message, lastMove)
+		case char := <-message:
+			if keyDirectionMap[char] == lastMove {
+				continue
+			} else if oppositeKeyDirectionMap[char] == lastMove {
+				continue
+			}
+			connectionBoard.mu.Lock()
+			check, holdingLastMove, err := movement(connectionBoard, char, lastMove)
 			if check == false {
 				if err != nil {
 					fmt.Println(err)
-					continue
 				}
-				continue
 			}
 			lastMove = holdingLastMove
-			//fmt.Println(rune(message[0]))
+			connectionBoard.mu.Unlock()
+
+		case <-time.After(250 * time.Millisecond):
+			connectionBoard.mu.Lock()
 			connectionBoard.renderBoard()
-		case <-time.After(time.Second):
-			connectionBoard.renderBoard()
-		default:
-			connectionBoard.renderBoard()
+			connectionBoard.mu.Unlock()
+			continue
 		}
-	}
-}
 
-func check(conn net.Conn, buffer []byte) chan rune {
-	fmt.Println("reach?")
-	res := make(chan rune)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		log.Fatal("Oh no")
 	}
-
-	res <- rune(string(buffer[:n])[0])
-	return res
 }
 
 type Board struct {
@@ -105,6 +117,7 @@ type Board struct {
 	cols       int
 	boardState [][]rune
 	snakeState []Pos
+	mu         sync.Mutex
 }
 
 type Pos struct {
@@ -126,7 +139,6 @@ func (b *Board) updateBoard() {
 	for _, p := range b.snakeState {
 		b.boardState[p.row][p.col] = 'X'
 	}
-
 }
 
 func (b *Board) move(lastMove string) {
@@ -144,8 +156,8 @@ func (b *Board) move(lastMove string) {
 func (b *Board) moveVert(inc int) {
 	newPosArray := []Pos{}
 	for _, p := range b.snakeState {
-		if p.row+1 >= b.rows {
-			log.Fatal("YOU DIED")
+		if p.row+inc >= b.rows || p.row+inc <= -1 {
+			log.Fatal("You died")
 		}
 		p = Pos{
 			p.row + inc,
@@ -159,8 +171,8 @@ func (b *Board) moveVert(inc int) {
 func (b *Board) moveLat(inc int) {
 	newPosArray := []Pos{}
 	for _, p := range b.snakeState {
-		if p.col+1 >= b.cols {
-			log.Fatal("YOU DIED")
+		if p.col+inc >= b.cols || p.col+inc <= -1 {
+			log.Fatal("You died")
 		}
 		p = Pos{
 			p.row,
@@ -174,27 +186,15 @@ func (b *Board) moveLat(inc int) {
 func movement(board *Board, message rune, lastMove string) (bool, string, error) {
 	switch message {
 	case 'w':
-		if lastMove == DOWN {
-			return false, lastMove, IllegalMoveError
-		}
 		lastMove = UP
 		return true, lastMove, nil
 	case 'd':
-		if lastMove == LEFT {
-			return false, lastMove, IllegalMoveError
-		}
 		lastMove = RIGHT
 		return true, lastMove, nil
 	case 'a':
-		if lastMove == RIGHT {
-			return false, lastMove, IllegalMoveError
-		}
 		lastMove = LEFT
 		return true, lastMove, nil
 	case 's':
-		if lastMove == UP {
-			return false, lastMove, IllegalMoveError
-		}
 		lastMove = DOWN
 		return true, lastMove, nil
 
