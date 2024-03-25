@@ -25,6 +25,7 @@ var (
 	IllegalMoveError        error  = errors.New("Illegal move entered")
 	InvalidMoveError        error  = errors.New("Invalid key pressed")
 	blankArr                []rune = makeEmptyArr()
+	takeABreak                     = false
 )
 
 func makeEmptyArr() []rune {
@@ -81,7 +82,9 @@ func handleConnection(conn net.Conn) error {
 			}
 			// put the logic to ignore keystrokes in here instead of in the movement thing
 			message <- rune(string(buffer[:n])[0])
+			time.Sleep(250 * time.Millisecond)
 		}
+
 	}()
 
 	for {
@@ -108,7 +111,6 @@ func handleConnection(conn net.Conn) error {
 			connectionBoard.mu.Unlock()
 			continue
 		}
-
 	}
 }
 
