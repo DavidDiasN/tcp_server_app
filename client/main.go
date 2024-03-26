@@ -2,9 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -34,6 +38,35 @@ func main() {
 	defer conn.Close()
 	reader := bufio.NewReader(os.Stdin)
 
+	go func() {
+		for i := 1; i < 50; i++ {
+			fmt.Println(i)
+
+			var boardState [][]rune
+			buffer := make([]byte, 2500)
+
+			_, err := conn.Read(buffer)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(string(buffer))
+
+			reader := bytes.NewReader(buffer)
+			decoder := json.NewDecoder(reader)
+			if err := decoder.Decode(&boardState); err != nil {
+				fmt.Println(buffer)
+				log.Fatal(err)
+			} else {
+				for j, row := range boardState {
+					fmt.Println(j)
+					fmt.Println(string(row))
+				}
+			}
+			time.Sleep(150 * time.Millisecond)
+			fmt.Println("End of for loop")
+		}
+	}()
+
 	for {
 		char, err := reader.ReadByte()
 		if err != nil {
@@ -41,19 +74,20 @@ func main() {
 			break
 		}
 
-		_, err = conn.Write([]byte{char})
-
-		if err != nil {
-			fmt.Errorf("You got an error writing to the server: %v", err)
-		}
-		// NEED TO BLOCK AFTER SENDING MESSAGE TO SERVER AND AWAIT A BYTE STREAM ARRAY, TAKE THAT ARRAY AND DISPLAY IT
 		if rune(char) == 27 {
-			term.Restore(int(os.Stdin.Fd()), oldState)
 			if err != nil {
 				fmt.Println(err)
-				os.Exit(1)
 			}
+			return
+		} else {
+			_, err = conn.Write([]byte{char})
+
+			if err != nil {
+				fmt.Errorf("You got an error writing to the server: %v", err)
+			}
+
 		}
+
 	}
 }
 

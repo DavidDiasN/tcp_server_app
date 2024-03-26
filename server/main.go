@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -80,11 +82,27 @@ func handleConnection(conn net.Conn) error {
 			if n == -1 {
 				return
 			}
-			// put the logic to ignore keystrokes in here instead of in the movement thing
 			message <- rune(string(buffer[:n])[0])
 			time.Sleep(250 * time.Millisecond)
 		}
 
+	}()
+
+	go func() {
+		for {
+			connectionBoard.mu.Lock()
+			connectionBoard.renderBoard()
+			buffer := new(bytes.Buffer)
+			encoder := json.NewEncoder(buffer)
+			err := encoder.Encode(connectionBoard.boardState)
+			if err != nil {
+				log.Fatal(err)
+			}
+			conn.Write(buffer.Bytes())
+
+			connectionBoard.mu.Unlock()
+			time.Sleep(250 * time.Millisecond)
+		}
 	}()
 
 	for {
@@ -104,11 +122,9 @@ func handleConnection(conn net.Conn) error {
 			}
 			lastMove = holdingLastMove
 			connectionBoard.mu.Unlock()
+			conn.Write(make([]byte, 1))
 
 		case <-time.After(250 * time.Millisecond):
-			connectionBoard.mu.Lock()
-			connectionBoard.renderBoard()
-			connectionBoard.mu.Unlock()
 			continue
 		}
 	}
@@ -128,10 +144,9 @@ type Pos struct {
 }
 
 func (b *Board) renderBoard() {
-
 	b.move(lastMove)
 	b.updateBoard()
-	b.displayBoard()
+	//b.displayBoard()
 }
 
 func (b *Board) updateBoard() {
@@ -205,8 +220,8 @@ func movement(board *Board, message rune, lastMove string) (bool, string, error)
 	}
 }
 
-func (b *Board) displayBoard() {
-	for _, row := range b.boardState {
-		fmt.Println(string(row))
-	}
-}
+//func (b *Board) displayBoard() {
+//	for _, row := range b.boardState {
+//		fmt.Println(string(row))
+//	}
+//}
