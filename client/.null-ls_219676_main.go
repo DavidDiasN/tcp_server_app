@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
+  tea "github.com/charmbracelet/bubbletea"
 )
 
 var (
@@ -17,29 +18,29 @@ var (
 
 func main() {
 
-	fmt.Println("Starting up client")
-	conn, err := net.Dial("tcp", "localhost:5003")
-	if err != nil {
-		log.Fatal(fmt.Errorf("Ran into an error trying to connect to server: %v", err))
-	}
-
-	defer conn.Close()
-
 	fd := int(os.Stdin.Fd())
 
-	_, err = term.GetState(fd)
+	// Get the current terminal state.
+	_, err := term.GetState(fd)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	oldState, err := term.MakeRaw(fd)
-
+	// Put the terminal into raw mode.
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		term.Restore(fd, oldState)
 		panic(err)
 	}
-	defer term.Restore(fd, oldState)
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	fmt.Println("Starting up client")
+	conn, err := net.Dial("tcp", "localhost:5003")
+	if err != nil {
+		log.Fatal(fmt.Errorf("Ran into an error trying to connect to server: %v", err))
+	}
+	defer conn.Close()
+	reader := bufio.NewReader(os.Stdin)
 
 	go func() {
 		for {
@@ -49,7 +50,7 @@ func main() {
 			_, err := conn.Read(buffer)
 			if err != nil {
 				fmt.Println("error in conn.Read")
-				term.Restore(fd, oldState)
+				term.Restore(int(os.Stdin.Fd()), oldState)
 				log.Fatal(err)
 			}
 			//fmt.Printf("This is the raw message from conn: %v\n", string(buffer))
@@ -59,31 +60,23 @@ func main() {
 			updateString := ""
 			if err := decoder.Decode(&boardState); err != nil {
 				fmt.Printf("decoded buffer dump: %v\n", buffer)
-				term.Restore(fd, oldState)
+				term.Restore(int(os.Stdin.Fd()), oldState)
 				log.Fatal(err)
 			} else {
-				fmt.Print("\033[2J\033[H")
-				fmt.Println("\r###########################")
 				for _, row := range boardState {
-					updateString += "#"
 					updateString += string(row)
-					updateString += "#\n\r"
 				}
-				fmt.Printf("\r%s", updateString)
-				fmt.Println("\r###########################")
+				fmt.Println(updateString)
 			}
 		}
 	}()
 
 	for {
-		buff := make([]byte, 1)
-		_, err := os.Stdin.Read(buff)
+		char, err := reader.ReadByte()
 		if err != nil {
 			fmt.Println("Error reading input:", err)
 			break
 		}
-
-		char := buff[0]
 
 		if rune(char) == 27 {
 			if err != nil {
@@ -100,7 +93,6 @@ func main() {
 			}
 
 		}
-		time.Sleep(200 * time.Millisecond)
 
 	}
 }

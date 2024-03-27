@@ -33,7 +33,7 @@ var (
 func makeEmptyArr() []rune {
 	arrRune := make([]rune, 25)
 	for i := range arrRune {
-		arrRune[i] = ' '
+		arrRune[i] = '.'
 	}
 	return arrRune
 }
@@ -99,8 +99,9 @@ func handleConnection(conn net.Conn) error {
 				log.Fatal(err)
 			}
 			conn.Write(buffer.Bytes())
+
 			connectionBoard.mu.Unlock()
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(2000 * time.Millisecond)
 		}
 	}()
 
@@ -121,6 +122,7 @@ func handleConnection(conn net.Conn) error {
 			}
 			lastMove = holdingLastMove
 			connectionBoard.mu.Unlock()
+			conn.Write(make([]byte, 1))
 
 		case <-time.After(250 * time.Millisecond):
 			continue
