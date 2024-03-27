@@ -83,7 +83,7 @@ func handleConnection(conn net.Conn) error {
 				return
 			}
 			message <- rune(string(buffer[:n])[0])
-			time.Sleep(250 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 
 	}()

@@ -76,14 +76,29 @@ func main() {
 	}()
 
 	for {
-		buff := make([]byte, 1)
-		_, err := os.Stdin.Read(buff)
+
+		buff := make([]byte, 25)
+		n, err := os.Stdin.Read(buff)
+
 		if err != nil {
 			fmt.Println("Error reading input:", err)
 			break
 		}
 
-		char := buff[0]
+		var lastIndex int
+		for i := 0; i < n; i++ {
+			if buff[i] == 0 {
+				break
+			}
+			lastIndex = i
+		}
+
+		if lastIndex == -1 {
+			fmt.Println("Why wasn't anything read")
+			continue
+		}
+
+		char := buff[lastIndex]
 
 		if rune(char) == 27 {
 			if err != nil {
@@ -96,11 +111,12 @@ func main() {
 			_, err = conn.Write([]byte{char})
 			lastMove = rune(char)
 			if err != nil {
-				fmt.Errorf("You got an error writing to the server: %v", err)
+				log.Fatal(fmt.Errorf("You got an error writing to the server: %v", err))
 			}
 
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
+		//fmt.Println("Another input")
 
 	}
 }
