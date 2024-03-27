@@ -23,11 +23,12 @@ const (
 var (
 	oppositeKeyDirectionMap        = map[rune]string{'w': DOWN, 's': UP, 'd': LEFT, 'a': RIGHT}
 	keyDirectionMap                = map[rune]string{'w': UP, 's': DOWN, 'd': RIGHT, 'a': LEFT}
-	lastMove                string = UP
+	lastInputMove           string = UP
+	lastProcessedMove       string = UP
 	IllegalMoveError        error  = errors.New("Illegal move entered")
 	InvalidMoveError        error  = errors.New("Invalid key pressed")
 	blankArr                []rune = makeEmptyArr()
-	takeABreak                     = false
+	takeABreak              bool   = false
 )
 
 func makeEmptyArr() []rune {
@@ -107,19 +108,19 @@ func handleConnection(conn net.Conn) error {
 	for {
 		select {
 		case char := <-message:
-			if keyDirectionMap[char] == lastMove {
+			if keyDirectionMap[char] == lastProcessedMove {
 				continue
-			} else if oppositeKeyDirectionMap[char] == lastMove {
+			} else if oppositeKeyDirectionMap[char] == lastProcessedMove {
 				continue
 			}
 			connectionBoard.mu.Lock()
-			check, holdingLastMove, err := movement(connectionBoard, char, lastMove)
+			check, holdingLastMove, err := movement(connectionBoard, char, lastInputMove)
 			if check == false {
 				if err != nil {
 					fmt.Println(err)
 				}
 			}
-			lastMove = holdingLastMove
+			lastInputMove = holdingLastMove
 			connectionBoard.mu.Unlock()
 
 		case <-time.After(250 * time.Millisecond):
@@ -142,7 +143,7 @@ type Pos struct {
 }
 
 func (b *Board) renderBoard() {
-	b.move(lastMove)
+	b.move(lastInputMove)
 	b.updateBoard()
 	//b.displayBoard()
 }
@@ -157,13 +158,18 @@ func (b *Board) updateBoard() {
 }
 
 func (b *Board) move(lastMove string) {
+
 	if lastMove == UP {
+		lastProcessedMove = UP
 		b.moveVert(-1)
 	} else if lastMove == DOWN {
+		lastProcessedMove = DOWN
 		b.moveVert(1)
 	} else if lastMove == LEFT {
+		lastProcessedMove = LEFT
 		b.moveLat(-1)
 	} else if lastMove == RIGHT {
+		lastProcessedMove = RIGHT
 		b.moveLat(1)
 	}
 }
