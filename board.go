@@ -135,7 +135,6 @@ func (b *Board) renderBoard() error {
 	err := b.move()
 	if err == IllegalMoveError {
 		fmt.Printf("An Illegal move made it into move(): %v", err)
-		return err
 	} else if err == HitBounds {
 		fmt.Println("You Died")
 		b.gameConn.Write([]byte("You Died"))
@@ -175,45 +174,26 @@ func (b *Board) move() error {
 }
 
 func (b *Board) moveVert(inc int) error {
-	newPosArray := []Pos{}
-	for i, p := range b.snakeState {
-		if i == len(b.snakeState)-1 {
-			break
-		}
-		if i == 0 {
-			if p.row+inc >= b.rows || p.row+inc <= -1 {
-				return HitBounds
-			}
-			b.snakeState[i+1] = Pos{
-				p.row,
-				p.col,
-			}
-			newPosArray = append(newPosArray, p)
-		}
-
-		p = Pos{
-			p.row + inc,
-			p.col,
-		}
-		newPosArray = append(newPosArray, p)
-
+	if b.snakeState[0].row+inc >= b.rows || b.snakeState[0].row+inc <= -1 {
+		return HitBounds
 	}
+	newHead := Pos{b.snakeState[0].row, b.snakeState[0].col + inc}
+
+	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-2]...)
+
 	b.snakeState = newPosArray
 	return nil
 }
 
 func (b *Board) moveLat(inc int) error {
-	newPosArray := []Pos{}
-	for _, p := range b.snakeState {
-		if p.col+inc >= b.cols || p.col+inc <= -1 {
-			return HitBounds
-		}
-		p = Pos{
-			p.row,
-			p.col + inc,
-		}
-		newPosArray = append(newPosArray, p)
+
+	if b.snakeState[0].row+inc >= b.rows || b.snakeState[0].col+inc <= -1 {
+		return HitBounds
 	}
+	newHead := Pos{b.snakeState[0].row + inc, b.snakeState[0].col}
+
+	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-2]...)
+
 	b.snakeState = newPosArray
 	return nil
 }
