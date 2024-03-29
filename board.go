@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ var (
 	IllegalMoveError        error  = errors.New("Illegal move entered")
 	InvalidMoveError        error  = errors.New("Invalid key pressed")
 	HitBounds               error  = errors.New("Hit bounds")
+	SnakeCollision          error  = errors.New("Snake hit itself")
 	UserClosedGame          error  = errors.New("User Disconnected")
 	blankArr                []rune = makeEmptyArr()
 )
@@ -53,6 +55,7 @@ type Board struct {
 	mu                sync.Mutex
 	lastInputMove     string
 	lastProcessedMove string
+	food              Pos
 }
 
 func NewBoard(rows, cols int, conn net.Conn) *Board {
@@ -64,13 +67,14 @@ func NewBoard(rows, cols int, conn net.Conn) *Board {
 		copy(newBoardState[i], blankArr)
 	}
 
-	startingSnake := []Pos{Pos{colStart, rowStart}, Pos{colStart - 1, rowStart - 1}, Pos{colStart - 2, rowStart - 2}, Pos{colStart - 3, rowStart - 3}}
+	startingSnake := generateSnake(12, 4)
 
-	return &Board{rows, cols, newBoardState, startingSnake, conn, sync.Mutex{}, UP, UP}
+	startingFood := Pos{rand.Intn(rows), rand.Intn(cols)}
+
+	return &Board{rows, cols, newBoardState, startingSnake, conn, sync.Mutex{}, UP, UP, startingFood}
 }
 
 func (b *Board) MoveListener(quit chan bool) error {
-
 	for {
 		buffer := make([]byte, 1)
 		n, err := b.gameConn.Read(buffer)
@@ -93,6 +97,15 @@ func (b *Board) MoveListener(quit chan bool) error {
 			continue
 		}
 	}
+}
+
+func generateSnake(start, size int) []Pos {
+	resSnake := []Pos{}
+	for i := 0; i < size; i++ {
+		resSnake = append(resSnake, Pos{start + i, start})
+	}
+	return resSnake
+
 }
 
 func (b *Board) FrameSender(quit chan bool) error {
@@ -131,17 +144,26 @@ type Pos struct {
 	col int
 }
 
+func PosEqual(a, b Pos) bool {
+	return a.row == b.row && a.col == b.col
+}
+
 func (b *Board) renderBoard() error {
 	err := b.move()
 	if err == IllegalMoveError {
 		fmt.Printf("An Illegal move made it into move(): %v", err)
-	} else if err == HitBounds {
+	} else if err == HitBounds || err == SnakeCollision {
 		fmt.Println("You Died")
 		b.gameConn.Write([]byte("You Died"))
 		return err
 	}
+
+	if PosEqual(b.snakeState[0], b.food) {
+		b.growSnake(1)
+		b.food = Pos{rand.Intn(b.rows), rand.Intn(b.cols)}
+	}
+
 	b.updateBoard()
-	//b.displayBoard()
 	return nil
 }
 
@@ -152,6 +174,7 @@ func (b *Board) updateBoard() {
 	for _, p := range b.snakeState {
 		b.boardState[p.row][p.col] = 'X'
 	}
+	b.boardState[b.food.row][b.food.col] = 'O'
 }
 
 func (b *Board) move() error {
@@ -174,10 +197,13 @@ func (b *Board) move() error {
 }
 
 func (b *Board) moveVert(inc int) error {
-	if b.snakeState[0].row+inc >= b.rows || b.snakeState[0].row+inc <= -1 {
+	if !coordsInBounds(b.snakeState[0].row + inc) {
 		return HitBounds
 	}
-	newHead := Pos{b.snakeState[0].row, b.snakeState[0].col + inc}
+	newHead := Pos{b.snakeState[0].row + inc, b.snakeState[0].col}
+	if collides(b.snakeState, newHead) {
+		return SnakeCollision
+	}
 
 	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-1]...)
 
@@ -187,15 +213,69 @@ func (b *Board) moveVert(inc int) error {
 
 func (b *Board) moveLat(inc int) error {
 
-	if b.snakeState[0].row+inc >= b.rows || b.snakeState[0].col+inc <= -1 {
+	if !coordsInBounds(b.snakeState[0].col + inc) {
 		return HitBounds
 	}
-	newHead := Pos{b.snakeState[0].row + inc, b.snakeState[0].col}
+	newHead := Pos{b.snakeState[0].row, b.snakeState[0].col + inc}
 
+	if collides(b.snakeState, newHead) {
+		return SnakeCollision
+	}
 	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-1]...)
 
 	b.snakeState = newPosArray
 	return nil
+}
+
+func (b *Board) growSnake(inc int) error {
+	l := len(b.snakeState) - 1
+	i := 0
+	for i < inc {
+		x := b.snakeState[l].row
+		y := b.snakeState[l].col
+		if coordsInBounds(x + 1) {
+			if collides(b.snakeState, Pos{x + 1, y}) {
+			}
+			b.snakeState = append(b.snakeState, Pos{x + 1, y})
+			i++
+		} else if coordsInBounds(x - 1) {
+			if collides(b.snakeState, Pos{x - 1, y}) {
+
+			}
+
+			b.snakeState = append(b.snakeState, Pos{x - 1, y})
+			i++
+		} else if coordsInBounds(y + 1) {
+			if collides(b.snakeState, Pos{x, y + 1}) {
+
+			}
+
+			b.snakeState = append(b.snakeState, Pos{x, y + 1})
+			i++
+		} else if coordsInBounds(y - 1) {
+			if collides(b.snakeState, Pos{x, y - 1}) {
+
+			}
+
+			b.snakeState = append(b.snakeState, Pos{x, y - 1})
+			i++
+		}
+
+	}
+	return nil
+}
+
+func collides(snake []Pos, newPos Pos) bool {
+	for _, p := range snake {
+		if PosEqual(p, newPos) {
+			return true
+		}
+	}
+	return false
+}
+
+func coordsInBounds(x int) bool {
+	return x < 25 && x > -1
 }
 
 func (b *Board) movement(char rune) {
