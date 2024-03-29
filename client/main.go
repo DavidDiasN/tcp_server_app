@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -56,6 +57,12 @@ func main() {
 			timer.Stop()
 			if err != nil {
 				fmt.Println("\rError reading from conn")
+				return
+			}
+
+			if strings.Contains(string(buffer), "You Died") {
+				fmt.Println("\rYou Died")
+				gracefulClose(conn, fd, oldState, nil)
 				return
 			}
 
