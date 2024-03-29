@@ -1,2 +1,4 @@
 github.com/DavidDiasN/tcp_server_app v0.0.0-20240329012704-6047cad382a0 h1:tk+MS0rCRpszBzlJWXe8UjuXeaKnN/x4qRGGaKUnHtQ=
 github.com/DavidDiasN/tcp_server_app v0.0.0-20240329012704-6047cad382a0/go.mod h1:2/e7XNKxo9TKvrO8JCh9TSphCnof9/8iNUtXAni1oiM=
+github.com/DavidDiasN/tcp_server_app v0.0.0-20240329013546-c901975fad13 h1:ggEaGthLy+zqEShpKh6dL0jhUqzYJ/gVJHE4CL03QWg=
+github.com/DavidDiasN/tcp_server_app v0.0.0-20240329013546-c901975fad13/go.mod h1:2/e7XNKxo9TKvrO8JCh9TSphCnof9/8iNUtXAni1oiM=

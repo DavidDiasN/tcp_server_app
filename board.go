@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -29,6 +30,12 @@ var (
 	blankArr                []rune = makeEmptyArr()
 )
 
+type Connection interface {
+	io.Reader
+	io.Writer
+	io.Closer
+}
+
 func makeEmptyArr() []rune {
 	arrRune := make([]rune, 25)
 	for i := range arrRune {
@@ -42,7 +49,7 @@ type Board struct {
 	cols              int
 	boardState        [][]rune
 	snakeState        []Pos
-	gameConn          net.Conn
+	gameConn          Connection
 	mu                sync.Mutex
 	lastInputMove     string
 	lastProcessedMove string
@@ -57,9 +64,9 @@ func NewBoard(rows, cols int, conn net.Conn) *Board {
 		copy(newBoardState[i], blankArr)
 	}
 
-	startingPos := Pos{colStart, rowStart}
+	startingSnake := []Pos{Pos{colStart, rowStart}, Pos{colStart - 1, rowStart - 1}, Pos{colStart - 2, rowStart - 2}, Pos{colStart - 3, rowStart - 3}}
 
-	return &Board{rows, cols, newBoardState, []Pos{startingPos}, conn, sync.Mutex{}, UP, UP}
+	return &Board{rows, cols, newBoardState, startingSnake, conn, sync.Mutex{}, UP, UP}
 }
 
 func (b *Board) MoveListener(quit chan bool) error {
@@ -169,15 +176,28 @@ func (b *Board) move() error {
 
 func (b *Board) moveVert(inc int) error {
 	newPosArray := []Pos{}
-	for _, p := range b.snakeState {
-		if p.row+inc >= b.rows || p.row+inc <= -1 {
-			return HitBounds
+	for i, p := range b.snakeState {
+		if i == len(b.snakeState)-1 {
+			break
 		}
+		if i == 0 {
+			if p.row+inc >= b.rows || p.row+inc <= -1 {
+				return HitBounds
+			}
+			b.snakeState[i+1] = Pos{
+				p.row,
+				p.col,
+			}
+			newPosArray = append(newPosArray, p)
+		}
+
 		p = Pos{
 			p.row + inc,
 			p.col,
+			"",
 		}
 		newPosArray = append(newPosArray, p)
+
 	}
 	b.snakeState = newPosArray
 	return nil
