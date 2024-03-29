@@ -10,6 +10,15 @@ import (
 	"time"
 )
 
+const (
+	UP       = "UP"
+	DOWN     = "DOWN"
+	LEFT     = "LEFT"
+	RIGHT    = "RIGHT"
+	colStart = 12
+	rowStart = 12
+)
+
 var (
 	oppositeKeyDirectionMap        = map[rune]string{'w': DOWN, 's': UP, 'd': LEFT, 'a': RIGHT}
 	keyDirectionMap                = map[rune]string{'w': UP, 's': DOWN, 'd': RIGHT, 'a': LEFT}
