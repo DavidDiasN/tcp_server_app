@@ -179,7 +179,7 @@ func (b *Board) moveVert(inc int) error {
 	}
 	newHead := Pos{b.snakeState[0].row, b.snakeState[0].col + inc}
 
-	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-2]...)
+	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-1]...)
 
 	b.snakeState = newPosArray
 	return nil
@@ -192,7 +192,7 @@ func (b *Board) moveLat(inc int) error {
 	}
 	newHead := Pos{b.snakeState[0].row + inc, b.snakeState[0].col}
 
-	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-2]...)
+	newPosArray := append([]Pos{newHead}, b.snakeState[:len(b.snakeState)-1]...)
 
 	b.snakeState = newPosArray
 	return nil
