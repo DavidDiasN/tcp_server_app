@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"golang.org/x/term"
 	"log"
@@ -13,8 +12,7 @@ import (
 )
 
 var (
-	lastMove          rune  = 'w'
-	ConnectionTimeout error = errors.New("Max wait time for next packet exceeded.")
+	lastMove rune = 'w'
 )
 
 func main() {
@@ -25,7 +23,6 @@ func main() {
 		log.Fatal(fmt.Errorf("\rRan into an error trying to connect to server: %v", err))
 	}
 
-	defer deferLog()
 	defer conn.Close()
 
 	fd := int(os.Stdin.Fd())
@@ -39,24 +36,20 @@ func main() {
 	oldState, err := term.MakeRaw(fd)
 
 	if err != nil {
-		return
+		gracefulClose(conn, fd, oldState, err)
 	}
 
 	defer term.Restore(fd, oldState)
+
 	go func() {
 		for {
-			timer := time.AfterFunc(3*time.Second, func() {
-				gracefulClose(conn, fd, oldState, ConnectionTimeout)
-			})
-
 			var boardState [][]rune
 
 			buffer := make([]byte, 3500)
 			_, err := conn.Read(buffer)
-			timer.Stop()
 			if err != nil {
 				fmt.Println("\rError reading from conn")
-				return
+				gracefulClose(conn, fd, oldState, err)
 			}
 
 			serverReader := bytes.NewReader(buffer)
@@ -64,7 +57,7 @@ func main() {
 
 			if err := decoder.Decode(&boardState); err != nil {
 				fmt.Printf("\rdecoded buffer dump: %v\n", buffer)
-				return
+				gracefulClose(conn, fd, oldState, err)
 			} else {
 				displayBoard(boardState)
 			}
@@ -100,7 +93,6 @@ func main() {
 			if err != nil {
 				fmt.Println(err)
 			}
-			conn.Write([]byte{char})
 			return
 		} else if rune(char) == lastMove {
 			continue
@@ -130,6 +122,7 @@ func scanChars(data []byte, atEOF bool) (advance int, token []byte, err error) {
 }
 
 func displayBoard(boardState [][]rune) {
+
 	updateString := ""
 	fmt.Print("\033[2J\033[H")
 	fmt.Println("\r###########################")
@@ -141,16 +134,11 @@ func displayBoard(boardState [][]rune) {
 
 	fmt.Printf("\r%s", updateString)
 	fmt.Println("\r###########################")
+
 }
 
 func gracefulClose(conn net.Conn, fd int, oldState *term.State, err error) {
 	conn.Close()
 	term.Restore(fd, oldState)
-	if err != nil {
-		log.Fatalf("\r%v", err)
-	}
-}
-
-func deferLog() {
-	fmt.Println("Deferd properlly")
+	log.Fatalf("\r%v", err)
 }

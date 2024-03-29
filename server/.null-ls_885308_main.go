@@ -23,17 +23,18 @@ const (
 var (
 	oppositeKeyDirectionMap        = map[rune]string{'w': DOWN, 's': UP, 'd': LEFT, 'a': RIGHT}
 	keyDirectionMap                = map[rune]string{'w': UP, 's': DOWN, 'd': RIGHT, 'a': LEFT}
-	lastMove                string = UP
+	lastInputMove           string = UP
+	lastProcessedMove       string = UP
 	IllegalMoveError        error  = errors.New("Illegal move entered")
 	InvalidMoveError        error  = errors.New("Invalid key pressed")
 	blankArr                []rune = makeEmptyArr()
-	takeABreak                     = false
+	takeABreak              bool   = false
 )
 
 func makeEmptyArr() []rune {
 	arrRune := make([]rune, 25)
 	for i := range arrRune {
-		arrRune[i] = '.'
+		arrRune[i] = ' '
 	}
 	return arrRune
 }
@@ -49,6 +50,7 @@ func main() {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Errorf("There was an error accepting the connection: %v", err)
+      return
 		}
 		fmt.Println("Succesful connection")
 		go handleConnection(conn)
@@ -83,7 +85,7 @@ func handleConnection(conn net.Conn) error {
 				return
 			}
 			message <- rune(string(buffer[:n])[0])
-			time.Sleep(250 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 
 	}()
@@ -99,30 +101,28 @@ func handleConnection(conn net.Conn) error {
 				log.Fatal(err)
 			}
 			conn.Write(buffer.Bytes())
-
 			connectionBoard.mu.Unlock()
-			time.Sleep(2000 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 	}()
 
 	for {
 		select {
 		case char := <-message:
-			if keyDirectionMap[char] == lastMove {
+			if keyDirectionMap[char] == lastProcessedMove {
 				continue
-			} else if oppositeKeyDirectionMap[char] == lastMove {
+			} else if oppositeKeyDirectionMap[char] == lastProcessedMove {
 				continue
 			}
 			connectionBoard.mu.Lock()
-			check, holdingLastMove, err := movement(connectionBoard, char, lastMove)
+			check, holdingLastMove, err := movement(connectionBoard, char, lastInputMove)
 			if check == false {
 				if err != nil {
 					fmt.Println(err)
 				}
 			}
-			lastMove = holdingLastMove
+			lastInputMove = holdingLastMove
 			connectionBoard.mu.Unlock()
-			conn.Write(make([]byte, 1))
 
 		case <-time.After(250 * time.Millisecond):
 			continue
@@ -144,7 +144,7 @@ type Pos struct {
 }
 
 func (b *Board) renderBoard() {
-	b.move(lastMove)
+	b.move(lastInputMove)
 	b.updateBoard()
 	//b.displayBoard()
 }
@@ -159,13 +159,18 @@ func (b *Board) updateBoard() {
 }
 
 func (b *Board) move(lastMove string) {
+
 	if lastMove == UP {
+		lastProcessedMove = UP
 		b.moveVert(-1)
 	} else if lastMove == DOWN {
+		lastProcessedMove = DOWN
 		b.moveVert(1)
 	} else if lastMove == LEFT {
+		lastProcessedMove = LEFT
 		b.moveLat(-1)
 	} else if lastMove == RIGHT {
+		lastProcessedMove = RIGHT
 		b.moveLat(1)
 	}
 }

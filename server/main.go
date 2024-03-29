@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -18,17 +17,18 @@ const (
 	RIGHT    = "RIGHT"
 	colStart = 12
 	rowStart = 12
+	ROWS     = 25
+	COLS     = 25
 )
 
 var (
 	oppositeKeyDirectionMap        = map[rune]string{'w': DOWN, 's': UP, 'd': LEFT, 'a': RIGHT}
 	keyDirectionMap                = map[rune]string{'w': UP, 's': DOWN, 'd': RIGHT, 'a': LEFT}
-	lastInputMove           string = UP
-	lastProcessedMove       string = UP
 	IllegalMoveError        error  = errors.New("Illegal move entered")
 	InvalidMoveError        error  = errors.New("Invalid key pressed")
+	HitBounds               error  = errors.New("Hit bounds")
+	UserClosedGame          error  = errors.New("User Disconnected")
 	blankArr                []rune = makeEmptyArr()
-	takeABreak              bool   = false
 )
 
 func makeEmptyArr() []rune {
@@ -42,14 +42,16 @@ func makeEmptyArr() []rune {
 func main() {
 	ln, err := net.Listen("tcp", ":5003")
 	if err != nil {
-		fmt.Errorf("There was an issue making the server: %v", err)
+		fmt.Printf("There was an issue making the server: %v", err)
+		return
 	}
 	defer ln.Close()
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			fmt.Errorf("There was an error accepting the connection: %v", err)
+			fmt.Printf("There was an error accepting the connection: %v\n", err)
+			return
 		}
 		fmt.Println("Succesful connection")
 		go handleConnection(conn)
@@ -58,8 +60,34 @@ func main() {
 
 func handleConnection(conn net.Conn) error {
 	defer conn.Close()
-	rows := 25
-	cols := 25
+
+	quit := make(chan bool)
+
+	connectionBoard := NewBoard(ROWS, COLS, conn)
+
+	go connectionBoard.FrameSender(quit)
+
+	err := connectionBoard.MoveListener(quit)
+	if err == UserClosedGame {
+		fmt.Println("User closed the game")
+		return UserClosedGame
+	}
+
+	return nil
+}
+
+type Board struct {
+	rows              int
+	cols              int
+	boardState        [][]rune
+	snakeState        []Pos
+	gameConn          net.Conn
+	mu                sync.Mutex
+	lastInputMove     string
+	lastProcessedMove string
+}
+
+func NewBoard(rows, cols int, conn net.Conn) *Board {
 
 	var newBoardState = make([][]rune, rows)
 
@@ -70,71 +98,64 @@ func handleConnection(conn net.Conn) error {
 
 	startingPos := Pos{colStart, rowStart}
 
-	connectionBoard := &Board{rows, cols, newBoardState, []Pos{startingPos}, sync.Mutex{}}
+	return &Board{rows, cols, newBoardState, []Pos{startingPos}, conn, sync.Mutex{}, UP, UP}
+}
 
-	message := make(chan rune)
-	go func() {
-		for {
-			buffer := make([]byte, 1)
-			n, err := conn.Read(buffer)
-			if err != nil {
-				return
-			}
-			if n == -1 {
-				return
-			}
-			message <- rune(string(buffer[:n])[0])
-			time.Sleep(300 * time.Millisecond)
-		}
-
-	}()
-
-	go func() {
-		for {
-			connectionBoard.mu.Lock()
-			connectionBoard.renderBoard()
-			buffer := new(bytes.Buffer)
-			encoder := json.NewEncoder(buffer)
-			err := encoder.Encode(connectionBoard.boardState)
-			if err != nil {
-				log.Fatal(err)
-			}
-			conn.Write(buffer.Bytes())
-			connectionBoard.mu.Unlock()
-			time.Sleep(300 * time.Millisecond)
-		}
-	}()
+func (b *Board) MoveListener(quit chan bool) error {
 
 	for {
-		select {
-		case char := <-message:
-			if keyDirectionMap[char] == lastProcessedMove {
-				continue
-			} else if oppositeKeyDirectionMap[char] == lastProcessedMove {
-				continue
-			}
-			connectionBoard.mu.Lock()
-			check, holdingLastMove, err := movement(connectionBoard, char, lastInputMove)
-			if check == false {
-				if err != nil {
-					fmt.Println(err)
-				}
-			}
-			lastInputMove = holdingLastMove
-			connectionBoard.mu.Unlock()
-
-		case <-time.After(250 * time.Millisecond):
+		buffer := make([]byte, 1)
+		n, err := b.gameConn.Read(buffer)
+		if err != nil {
+			return err
+		}
+		if n == -1 {
+			return err
+		}
+		char := rune(string(buffer[:n])[0])
+		if validMove(char) {
+			b.mu.Lock()
+			b.movement(char)
+			b.mu.Unlock()
+		} else if char == 27 {
+			b.gameConn.Close()
+			quit <- true
+			return UserClosedGame
+		} else {
 			continue
 		}
 	}
 }
 
-type Board struct {
-	rows       int
-	cols       int
-	boardState [][]rune
-	snakeState []Pos
-	mu         sync.Mutex
+func (b *Board) FrameSender(quit chan bool) error {
+
+	for {
+		select {
+		case <-quit:
+			return UserClosedGame
+		default:
+			b.mu.Lock()
+			err := b.renderBoard()
+			if err != nil {
+				return err
+			}
+
+			buffer := new(bytes.Buffer)
+			encoder := json.NewEncoder(buffer)
+			err = encoder.Encode(b.boardState)
+			if err != nil {
+				fmt.Printf("There was an error encoding boardState: %v\n", err)
+				continue
+			}
+			b.gameConn.Write(buffer.Bytes())
+			b.mu.Unlock()
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+}
+
+func validMove(char rune) bool {
+	return char == 'w' || char == 'a' || char == 's' || char == 'd'
 }
 
 type Pos struct {
@@ -142,10 +163,18 @@ type Pos struct {
 	col int
 }
 
-func (b *Board) renderBoard() {
-	b.move(lastInputMove)
+func (b *Board) renderBoard() error {
+	err := b.move()
+	if err == IllegalMoveError {
+		fmt.Printf("An Illegal move made it into move(): %v", err)
+		return err
+	} else if err == HitBounds {
+		fmt.Println("YOU DIED")
+		return err
+	}
 	b.updateBoard()
 	//b.displayBoard()
+	return nil
 }
 
 func (b *Board) updateBoard() {
@@ -157,28 +186,30 @@ func (b *Board) updateBoard() {
 	}
 }
 
-func (b *Board) move(lastMove string) {
-
-	if lastMove == UP {
-		lastProcessedMove = UP
-		b.moveVert(-1)
-	} else if lastMove == DOWN {
-		lastProcessedMove = DOWN
-		b.moveVert(1)
-	} else if lastMove == LEFT {
-		lastProcessedMove = LEFT
-		b.moveLat(-1)
-	} else if lastMove == RIGHT {
-		lastProcessedMove = RIGHT
-		b.moveLat(1)
+func (b *Board) move() error {
+	switch b.lastInputMove {
+	case UP:
+		b.lastProcessedMove = UP
+		return b.moveVert(-1)
+	case DOWN:
+		b.lastProcessedMove = DOWN
+		return b.moveVert(1)
+	case LEFT:
+		b.lastProcessedMove = LEFT
+		return b.moveLat(-1)
+	case RIGHT:
+		b.lastProcessedMove = RIGHT
+		return b.moveLat(1)
+	default:
+		return IllegalMoveError
 	}
 }
 
-func (b *Board) moveVert(inc int) {
+func (b *Board) moveVert(inc int) error {
 	newPosArray := []Pos{}
 	for _, p := range b.snakeState {
 		if p.row+inc >= b.rows || p.row+inc <= -1 {
-			log.Fatal("You died")
+			return HitBounds
 		}
 		p = Pos{
 			p.row + inc,
@@ -187,13 +218,14 @@ func (b *Board) moveVert(inc int) {
 		newPosArray = append(newPosArray, p)
 	}
 	b.snakeState = newPosArray
+	return nil
 }
 
-func (b *Board) moveLat(inc int) {
+func (b *Board) moveLat(inc int) error {
 	newPosArray := []Pos{}
 	for _, p := range b.snakeState {
 		if p.col+inc >= b.cols || p.col+inc <= -1 {
-			log.Fatal("You died")
+			return HitBounds
 		}
 		p = Pos{
 			p.row,
@@ -202,30 +234,14 @@ func (b *Board) moveLat(inc int) {
 		newPosArray = append(newPosArray, p)
 	}
 	b.snakeState = newPosArray
+	return nil
 }
 
-func movement(board *Board, message rune, lastMove string) (bool, string, error) {
-	switch message {
-	case 'w':
-		lastMove = UP
-		return true, lastMove, nil
-	case 'd':
-		lastMove = RIGHT
-		return true, lastMove, nil
-	case 'a':
-		lastMove = LEFT
-		return true, lastMove, nil
-	case 's':
-		lastMove = DOWN
-		return true, lastMove, nil
-
-	default:
-		return false, lastMove, InvalidMoveError
+func (b *Board) movement(char rune) {
+	if keyDirectionMap[char] == b.lastProcessedMove || oppositeKeyDirectionMap[char] == b.lastProcessedMove {
+		return
+	} else if keyDirectionMap[char] == b.lastInputMove {
+		return
 	}
+	b.lastInputMove = keyDirectionMap[char]
 }
-
-//func (b *Board) displayBoard() {
-//	for _, row := range b.boardState {
-//		fmt.Println(string(row))
-//	}
-//}
