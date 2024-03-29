@@ -194,7 +194,6 @@ func (b *Board) moveVert(inc int) error {
 		p = Pos{
 			p.row + inc,
 			p.col,
-			"",
 		}
 		newPosArray = append(newPosArray, p)
 
