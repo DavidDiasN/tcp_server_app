@@ -182,42 +182,32 @@ func (b *Board) move() error {
 	switch b.lastInputMove {
 	case UP:
 		b.lastProcessedMove = UP
-		return b.moveVert(-1)
+		return b.processMove(0, -1)
 	case DOWN:
 		b.lastProcessedMove = DOWN
-		return b.moveVert(1)
+		return b.processMove(0, 1)
 	case LEFT:
 		b.lastProcessedMove = LEFT
-		return b.moveLat(-1)
+		return b.processMove(1, -1)
 	case RIGHT:
 		b.lastProcessedMove = RIGHT
-		return b.moveLat(1)
+		return b.processMove(1, 1)
 	default:
 		return IllegalMoveError
 	}
 }
 
-func (b *Board) moveVert(inc int) error {
-	if !coordsInBounds(b.snakeState[0][0] + inc) {
+func (b *Board) processMove(pos, inc int) error {
+
+	if !coordsInBounds(b.snakeState[0][pos] + inc) {
 		return HitBounds
 	}
-	newHead := [2]int{b.snakeState[0][0] + inc, b.snakeState[0][1]}
-	if collides(b.snakeState, newHead) {
-		return SnakeCollision
+	var newHead [2]int
+	if pos == 1 {
+		newHead = [2]int{b.snakeState[0][0], b.snakeState[0][1] + inc}
+	} else {
+		newHead = [2]int{b.snakeState[0][0] + inc, b.snakeState[0][1]}
 	}
-
-	newPosArray := append([][2]int{newHead}, b.snakeState[:len(b.snakeState)-1]...)
-
-	b.snakeState = newPosArray
-	return nil
-}
-
-func (b *Board) moveLat(inc int) error {
-
-	if !coordsInBounds(b.snakeState[0][1] + inc) {
-		return HitBounds
-	}
-	newHead := [2]int{b.snakeState[0][0], b.snakeState[0][1] + inc}
 
 	if collides(b.snakeState, newHead) {
 		return SnakeCollision
@@ -226,6 +216,7 @@ func (b *Board) moveLat(inc int) error {
 
 	b.snakeState = newPosArray
 	return nil
+
 }
 
 func (b *Board) growSnake(inc int) error {
