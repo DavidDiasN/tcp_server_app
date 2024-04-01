@@ -30,7 +30,7 @@ func handleConnection(conn net.Conn) error {
 
 	quit := make(chan bool)
 
-	connectionBoard := board.NewBoard(25, 25, conn)
+	connectionBoard := board.NewGame(25, 25, conn)
 	// add more channels to catch errors
 	go connectionBoard.FrameSender(quit)
 
