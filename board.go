@@ -30,6 +30,7 @@ var (
 	SnakeCollision          error = errors.New("Snake hit itself")
 	UserClosedGame          error = errors.New("User Disconnected")
 	grewThisFrame           int   = 0
+	snakeIncrement          int   = 3
 )
 
 type Connection interface {
@@ -158,14 +159,14 @@ func (b *Board) updateSnake() error {
 	}
 
 	if PosEqual(b.snakeState[0], b.food) {
-		b.growSnake(1)
-		grewThisFrame += 1
+		b.growSnake(snakeIncrement)
+		grewThisFrame += snakeIncrement
 		landOnSnake := true
 		newFoodPos := [2]int{rand.Intn(b.rows), rand.Intn(b.cols)}
 		for landOnSnake {
 			if collides(b.snakeState, newFoodPos) {
-				grewThisFrame += 1
-				b.growSnake(1)
+				grewThisFrame += snakeIncrement
+				b.growSnake(snakeIncrement)
 				newFoodPos = [2]int{rand.Intn(b.rows), rand.Intn(b.cols)}
 			} else {
 				landOnSnake = false
@@ -219,8 +220,14 @@ func (b *Board) processMove(pos, inc int) error {
 
 }
 
-func (b *Board) growSnake(inc int) error {
+func (b *Board) growSnake(growBy, pos, inc int) error {
 	l := len(b.snakeState) - 1
+// Okay I think my idea is to just grow in the opposite direction that you are currently going in and making this whole thing recursive.
+// You can't grow in the direction you previously grew in so that part makes sense but the only problem with this method is
+// I need to be able to try a new root if I hit an issue before the snake is done growing. That also means changes have to be done on the final
+// iteration
+	if oppositeKeyDirectionMap[(b.snakeState)] == 
+	
 	i := 0
 	for i < inc {
 		x := b.snakeState[l][0]
@@ -277,4 +284,23 @@ func (b *Board) movement(char rune) {
 		return
 	}
 	b.lastInputMove = keyDirectionMap[char]
+}
+
+func tailDirection(snakeState [][2]int) string {
+	l := len(snakeState) - 1
+	last := snakeState[l]
+	second2Last := snakeState[l-1]
+	if last[0] == second2Last[0] {
+		if last[1] > second2Last[1] {
+			return DOWN
+		} else {
+			return UP
+		}
+	} else {
+		if last[0] > second2Last[0] {
+			return LEFT
+		} else {
+			return RIGHT
+		}
+	}
 }
