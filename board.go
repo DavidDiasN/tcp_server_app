@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -18,15 +19,16 @@ const (
 )
 
 var (
-	keyVectorMap           = map[rune][2]int{'w': {-1, 0}, 'd': {0, 1}, 's': {1, 0}, 'a': {0, -1}}
-	keyReversalMap         = map[rune]rune{'w': 's', 's': 'w', 'd': 'a', 'a': 'd'}
-	IllegalMoveError error = errors.New("Illegal move entered")
-	InvalidMoveError error = errors.New("Invalid key pressed")
-	HitBounds        error = errors.New("Hit bounds")
-	SnakeCollision   error = errors.New("Snake hit itself")
-	UserClosedGame   error = errors.New("User Disconnected")
-	grewThisFrame    int   = 0
-	snakeIncrement   int   = 3
+	keyVectorMap             = map[rune][2]int{'w': {-1, 0}, 'd': {0, 1}, 's': {1, 0}, 'a': {0, -1}}
+	keyReversalMap           = map[rune]rune{'w': 's', 's': 'w', 'd': 'a', 'a': 'd'}
+	keyGrowthOptionMap       = map[rune][3]rune{'w': {'s', 'a', 'd'}, 'd': {'a', 's', 'w'}, 's': {'w', 'a', 'd'}, 'a': {'d', 's', 'w'}}
+	IllegalMoveError   error = errors.New("Illegal move entered")
+	InvalidMoveError   error = errors.New("Invalid key pressed")
+	HitBounds          error = errors.New("Hit bounds")
+	SnakeCollision     error = errors.New("Snake hit itself")
+	UserClosedGame     error = errors.New("User Disconnected")
+	grewThisFrame      int   = 0
+	snakeIncrement     int   = 3
 )
 
 type Connection interface {
@@ -86,15 +88,6 @@ func (b *Board) MoveListener(quit chan bool) error {
 	}
 }
 
-func generateSnake(start, size int) [][2]int {
-	resSnake := [][2]int{}
-	for i := 0; i < size; i++ {
-		resSnake = append(resSnake, [2]int{start + i, start})
-	}
-	return resSnake
-
-}
-
 func (b *Board) FrameSender(quit chan bool) error {
 	grewThisFrame = 3
 	for {
@@ -134,6 +127,15 @@ func (b *Board) FrameSender(quit chan bool) error {
 			time.Sleep(150 * time.Millisecond)
 		}
 	}
+}
+
+func generateSnake(start, size int) [][2]int {
+	resSnake := [][2]int{}
+	for i := 0; i < size; i++ {
+		resSnake = append(resSnake, [2]int{start + i, start})
+	}
+	return resSnake
+
 }
 
 func validMove(char rune) bool {
@@ -176,13 +178,11 @@ func (b *Board) updateSnake() error {
 }
 
 func (b *Board) move() error {
-
 	vector := keyVectorMap[b.lastInputMove]
-	if !coordsInBounds(b.snakeState[0][0]+vector[0]) || !coordsInBounds(b.snakeState[0][1], +vector[1]) {
+	var newHead = [2]int{b.snakeState[0][0] + vector[0], b.snakeState[0][1] + vector[1]}
+	if !coordsInBounds(newHead[0], b.rows) || !coordsInBounds(newHead[1], b.cols) {
 		return HitBounds
 	}
-
-	var newHead = [2]int{b.snakeState[0][0] + vector[0], b.snakeState[0][1] + vector[1]}
 
 	if collides(b.snakeState, newHead) {
 		return SnakeCollision
@@ -190,56 +190,55 @@ func (b *Board) move() error {
 
 	newPosArray := append([][2]int{newHead}, b.snakeState[:len(b.snakeState)-1]...)
 	b.snakeState = newPosArray
+	b.lastProcessedMove = b.lastInputMove
 	return nil
 }
 
-func (b *Board) growSnake(growBy, pos, inc int) error {
-	l := len(b.snakeState) - 1
-	// Okay I think my idea is to just grow in the opposite direction that you are currently going in and making this whole thing recursive.
-	// You can't grow in the direction you previously grew in so that part makes sense but the only problem with this method is
-	// I need to be able to try a new root if I hit an issue before the snake is done growing. That also means changes have to be done on the final
-	// iteration
-
-	//	if oppositeKeyDirectionMap[(b.snakeState)] ==
-
-	i := 0
-	for i < inc {
-		x := b.snakeState[l][0]
-		y := b.snakeState[l][1]
-		if coordsInBounds(x + 1) {
-			if collides(b.snakeState, [2]int{x + 1, y}) {
-			}
-			b.snakeState = append(b.snakeState, [2]int{x + 1, y})
-			i++
-		} else if coordsInBounds(x - 1) {
-			if collides(b.snakeState, [2]int{x - 1, y}) {
-
-			}
-
-			b.snakeState = append(b.snakeState, [2]int{x - 1, y})
-			i++
-		} else if coordsInBounds(y + 1) {
-			if collides(b.snakeState, [2]int{x, y + 1}) {
-
-			}
-
-			b.snakeState = append(b.snakeState, [2]int{x, y + 1})
-			i++
-		} else if coordsInBounds(y - 1) {
-			if collides(b.snakeState, [2]int{x, y - 1}) {
-
-			}
-
-			b.snakeState = append(b.snakeState, [2]int{x, y - 1})
-			i++
-		}
-
+func (b *Board) growSnake(growBy int) error {
+	originalDirection := tailDirection(b.snakeState)
+	fmt.Println(originalDirection)
+	newPieces, err := b.growSnakeRecurse(b.snakeState[len(b.snakeState)-1], growBy, originalDirection)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
 	}
+	fmt.Println(newPieces)
+	b.snakeState = append(b.snakeState, newPieces...)
+
 	return nil
 }
 
-func growSnakeRecurs() error {
+func (b *Board) growSnakeRecurse(tail [2]int, growthLeft int, originalDirection rune) ([][2]int, error) {
+	if growthLeft == 0 {
+		return [][2]int{}, nil
+	}
+	directionsToCheck := keyGrowthOptionMap[originalDirection]
+	var err error
+	var resSnake [][2]int
 
+	for i := 0; i < 3; i++ {
+		fmt.Println(i)
+		vector := keyVectorMap[directionsToCheck[i]]
+		var newTail = [2]int{tail[0] + vector[0], tail[1] + vector[1]}
+		if !coordsInBounds(newTail[0], b.rows) || !coordsInBounds(newTail[1], b.cols) {
+			err = HitBounds
+			continue
+		} else if collides(b.snakeState, newTail) {
+			err = SnakeCollision
+			continue
+		} else {
+			rest, err := b.growSnakeRecurse(newTail, growthLeft-1, keyReversalMap[directionsToCheck[i]])
+			if err != nil {
+				continue
+			}
+			resSnake = append([][2]int{newTail}, rest...)
+			break
+		}
+	}
+	if len(resSnake) == 3 {
+
+		return resSnake, nil
+	}
+	return resSnake, err
 }
 
 func collides(snake [][2]int, newPos [2]int) bool {
@@ -271,15 +270,15 @@ func tailDirection(snakeState [][2]int) rune {
 	second2Last := snakeState[l-1]
 	if last[0] == second2Last[0] {
 		if last[1] > second2Last[1] {
-			return 's'
-		} else {
-			return 'w'
-		}
-	} else {
-		if last[0] > second2Last[0] {
 			return 'a'
 		} else {
 			return 'd'
+		}
+	} else {
+		if last[0] > second2Last[0] {
+			return 'w'
+		} else {
+			return 's'
 		}
 	}
 }
