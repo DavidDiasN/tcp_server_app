@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	colStart = 12
-	rowStart = 12
+	colStart       = 12
+	rowStart       = 12
+	snakeIncrement = 3
 )
 
 var (
@@ -26,9 +27,11 @@ var (
 	InvalidMoveError   error = errors.New("Invalid key pressed")
 	HitBounds          error = errors.New("Hit bounds")
 	SnakeCollision     error = errors.New("Snake hit itself")
+	NoValidGrowthPath  error = errors.New("No Valid growth paths")
+	GameVictory        error = errors.New("Game won, game ends")
 	UserClosedGame     error = errors.New("User Disconnected")
+	GameQuit           error = errors.New("Game was quit")
 	grewThisFrame      int   = 0
-	snakeIncrement     int   = 3
 )
 
 type Connection interface {
@@ -52,44 +55,49 @@ func NewGame(rows, cols int, conn net.Conn) *Board {
 
 	startingSnake := generateSnake(12, 4)
 
-	startingFood := [2]int{rand.Intn(rows), rand.Intn(cols)}
+	startingFood := [2]int{0, 5}
 
 	return &Board{rows, cols, startingSnake, conn, sync.Mutex{}, 'w', 'w', startingFood}
 }
 
 func (b *Board) MoveListener(quit chan bool) error {
 	for {
-		buffer := make([]byte, 1)
-		//timer := time.Now()
-		n, err := b.gameConn.Read(buffer)
-		//fmt.Printf("time to read: %v \n", time.Since(timer).Seconds())
-		if err != nil {
-			fmt.Println("Read error")
-			return err
+		select {
+		case <-quit:
+			return GameQuit
+		default:
+			buffer := make([]byte, 1)
+			//timer := time.Now()
+			n, err := b.gameConn.Read(buffer)
+			//fmt.Printf("time to read: %v \n", time.Since(timer).Seconds())
+			if err != nil {
+				fmt.Println("Read error")
+				return err
+			}
+			if n == -1 {
+				fmt.Println("-1 error")
+				return err
+			}
+			char := rune(string(buffer[:n])[0])
+			//fmt.Println(char)
+			if validMove(char) {
+				b.mu.Lock()
+				b.movement(char)
+				b.mu.Unlock()
+			} else if char == 27 {
+				b.gameConn.Close()
+				quit <- true
+				return UserClosedGame
+			} else {
+				continue
+			}
+			time.Sleep(17 * time.Millisecond)
 		}
-		if n == -1 {
-			fmt.Println("-1 error")
-			return err
-		}
-		char := rune(string(buffer[:n])[0])
-		//fmt.Println(char)
-		if validMove(char) {
-			b.mu.Lock()
-			b.movement(char)
-			b.mu.Unlock()
-		} else if char == 27 {
-			b.gameConn.Close()
-			quit <- true
-			return UserClosedGame
-		} else {
-			continue
-		}
-		time.Sleep(17 * time.Millisecond)
 	}
 }
 
 func (b *Board) FrameSender(quit chan bool) error {
-	grewThisFrame = 3
+	grewThisFrame = snakeIncrement
 	for {
 		select {
 		case <-quit:
@@ -98,7 +106,13 @@ func (b *Board) FrameSender(quit chan bool) error {
 			b.mu.Lock()
 			//startTime := time.Now()
 			err := b.updateSnake()
+			if err == GameVictory {
+				quit <- true
+				return GameVictory
+
+			}
 			if err != nil {
+				quit <- true
 				return err
 			}
 
@@ -151,20 +165,38 @@ func (b *Board) updateSnake() error {
 	if err == IllegalMoveError {
 		fmt.Printf("An Illegal move made it into move(): %v", err)
 	} else if err == HitBounds || err == SnakeCollision {
-		fmt.Println("You Died")
+		//fmt.Println("You Died")
 		b.gameConn.Write([]byte("You Died"))
 		return err
 	}
 
 	if PosEqual(b.snakeState[0], b.food) {
-		b.growSnake(snakeIncrement)
+		err = b.growSnake(snakeIncrement)
+		if err != nil && len(b.snakeState) > 620 {
+			b.gameConn.Write([]byte("You Won!"))
+			return GameVictory
+		}
+		if err != nil {
+			//fmt.Println("You Died")
+			b.gameConn.Write([]byte("You Died"))
+			return err
+		}
 		grewThisFrame += snakeIncrement
 		landOnSnake := true
 		newFoodPos := [2]int{rand.Intn(b.rows), rand.Intn(b.cols)}
 		for landOnSnake {
 			if collides(b.snakeState, newFoodPos) {
 				grewThisFrame += snakeIncrement
-				b.growSnake(snakeIncrement)
+				err = b.growSnake(snakeIncrement)
+				if err != nil && len(b.snakeState) > 620 {
+					b.gameConn.Write([]byte("You Won!"))
+					return GameVictory
+				}
+				if err != nil {
+					//fmt.Println("You Died")
+					b.gameConn.Write([]byte("You Died"))
+					return err
+				}
 				newFoodPos = [2]int{rand.Intn(b.rows), rand.Intn(b.cols)}
 			} else {
 				landOnSnake = false
@@ -196,12 +228,10 @@ func (b *Board) move() error {
 
 func (b *Board) growSnake(growBy int) error {
 	originalDirection := tailDirection(b.snakeState)
-	fmt.Println(originalDirection)
 	newPieces, err := b.growSnakeRecurse(b.snakeState[len(b.snakeState)-1], growBy, originalDirection)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
-	fmt.Println(newPieces)
 	b.snakeState = append(b.snakeState, newPieces...)
 
 	return nil
@@ -216,7 +246,10 @@ func (b *Board) growSnakeRecurse(tail [2]int, growthLeft int, originalDirection 
 	var resSnake [][2]int
 
 	for i := 0; i < 3; i++ {
-		fmt.Println(i)
+		if growthLeft == 0 {
+			break
+		}
+
 		vector := keyVectorMap[directionsToCheck[i]]
 		var newTail = [2]int{tail[0] + vector[0], tail[1] + vector[1]}
 		if !coordsInBounds(newTail[0], b.rows) || !coordsInBounds(newTail[1], b.cols) {
@@ -226,18 +259,31 @@ func (b *Board) growSnakeRecurse(tail [2]int, growthLeft int, originalDirection 
 			err = SnakeCollision
 			continue
 		} else {
-			rest, err := b.growSnakeRecurse(newTail, growthLeft-1, keyReversalMap[directionsToCheck[i]])
-			if err != nil {
-				continue
+			if growthLeft-1 == 0 {
+				response := [][2]int{newTail}
+				return response, nil
+			} else {
+				rest, recursErr := b.growSnakeRecurse(newTail, growthLeft-1, keyReversalMap[directionsToCheck[i]])
+				growthLeft--
+
+				if recursErr == NoValidGrowthPath {
+					growthLeft++
+					continue
+				} else if recursErr != nil {
+					growthLeft++
+					continue
+				}
+				resSnake = append([][2]int{newTail}, rest...)
+				break
 			}
-			resSnake = append([][2]int{newTail}, rest...)
-			break
 		}
 	}
+
 	if len(resSnake) == 3 {
 
 		return resSnake, nil
 	}
+
 	return resSnake, err
 }
 
